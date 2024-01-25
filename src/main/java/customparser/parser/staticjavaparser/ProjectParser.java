@@ -1,15 +1,14 @@
-package customparser.parser.javaparser;
+package customparser.parser.staticjavaparser;
 
 import com.github.javaparser.JavaParser;
 import com.github.javaparser.ParseResult;
 import com.github.javaparser.ast.CompilationUnit;
 import com.github.javaparser.ast.body.MethodDeclaration;
+import com.github.javaparser.ast.expr.MethodCallExpr;
+import com.github.javaparser.ast.nodeTypes.NodeWithName;
 
 import java.io.File;
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
 
 public class ProjectParser {
     private final String folderPath;
@@ -28,6 +27,12 @@ public class ProjectParser {
         } else {
             return className + "." + methodName;
         }
+    }
+
+    private Optional<MethodDeclaration> findMethodDeclaration(CompilationUnit compilationUnit, String methodName) {
+        return compilationUnit.findAll(MethodDeclaration.class).stream()
+                .filter(methodDeclaration -> methodDeclaration.getNameAsString().equals(methodName))
+                .findFirst();
     }
 
     private static ArrayList<String> listJavaFilePathsRecursively(String folderPath) {
@@ -73,13 +78,26 @@ public class ProjectParser {
         Map<String, List<String>> methodCalls = new HashMap<>();
 
         for(int i=0; i<this.compilationUnits.size(); i++) {
-            String packageName = this.compilationUnits.get(i).getPackageDeclaration().map(pd -> pd.getNameAsString()).orElse("");
+            String packageName = this.compilationUnits.get(i).getPackageDeclaration().map(NodeWithName::getNameAsString).orElse("");
             List<MethodDeclaration> methods = this.compilationUnits.get(i).findAll(MethodDeclaration.class);
 
             for(MethodDeclaration method: methods) {
                 String methodName = method.getNameAsString();
+                List<String> calledMethods = new ArrayList<>();
 
+                int finalI = i;
+                method.findAll(MethodCallExpr.class).forEach(callExpr -> {
+                    String calledMethodName = callExpr.getNameAsString();
 
+                    Optional<MethodDeclaration> calledMethodDeclaration = findMethodDeclaration(this.compilationUnits.get(finalI), calledMethodName);
+                    if(calledMethodDeclaration.isPresent()) {
+                        calledMethods.add(getFullyQualifiedName(packageName, this.compilationUnits.get(finalI).getPrimaryTypeName().orElse(""), calledMethodName));
+                    } else {
+                        calledMethods.add("External: " + calledMethodName);
+                    }
+                });
+
+                methodCalls.put(getFullyQualifiedName(packageName, this.compilationUnits.get(i).getPrimaryTypeName().orElse(""), methodName), calledMethods);
             }
         }
 
